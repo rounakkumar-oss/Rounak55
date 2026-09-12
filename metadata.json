@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis",
+  "description": "Android Voice Assistant featuring bilingual speech recognition (Hindi & English), text-to-speech, system app controls, and AI conversational intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
