@@ -1,8 +1,16 @@
 package com.example
 
 import android.Manifest
+import android.app.KeyguardManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import com.example.service.JarvisVoiceService
 import com.example.ui.JarvisScreen
 import com.example.ui.JarvisViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -39,8 +48,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        configureLockscreenAndWakeFlags()
 
-        // 4. Initialize Android's TextToSpeech engine in onCreate
+        // 5. Initialize TextToSpeech engine in onCreate
         ttsManager = TextToSpeechManager(this) { success ->
             if (!success) {
                 android.util.Log.w("MainActivity", "TTS failed initialization")
@@ -56,10 +66,58 @@ class MainActivity : ComponentActivity() {
                         onRequestAudioPermission = {
                             requestMicrophonePermission()
                         },
+                        onRequestBatteryExemption = {
+                            requestBatteryOptimizationExemption()
+                        },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
             }
+        }
+
+        handleIntentExtras(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        configureLockscreenAndWakeFlags()
+        handleIntentExtras(intent)
+    }
+
+    private fun handleIntentExtras(intent: Intent?) {
+        if (intent == null) return
+        val isWakeWord = intent.getBooleanExtra("WAKE_WORD_DETECTED", false)
+        val pendingCommand = intent.getStringExtra("PENDING_COMMAND")
+
+        if (isWakeWord) {
+            if (!pendingCommand.isNullOrBlank()) {
+                // User said "Jarvis open Spotify"
+                viewModel.processCommand(this, pendingCommand)
+            } else {
+                // User simply said "Jarvis" -> start listening for speech command immediately
+                requestMicrophonePermission()
+            }
+        }
+    }
+
+    /**
+     * Configures display to wake up over lock screen when triggered by wake word
+     */
+    private fun configureLockscreenAndWakeFlags() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            keyguardManager?.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
         }
     }
 
@@ -75,9 +133,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } else {
+                    Toast.makeText(this, "Battery optimization is already disabled for Jarvis", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                // Fallback to general battery settings
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (ignored: Exception) {}
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         viewModel.checkOverlayPermission(this)
+
+        // Pause background service listening while UI is active so they don't fight over mic
+        if (JarvisVoiceService.isServiceRunning.value) {
+            JarvisVoiceService.pauseListening(this)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Resume background service listening when user minimizes app or screen turns off
+        if (JarvisVoiceService.isServiceRunning.value) {
+            JarvisVoiceService.resumeListening(this)
+        }
     }
 
     override fun onDestroy() {

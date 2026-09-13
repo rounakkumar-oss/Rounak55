@@ -2,6 +2,8 @@ package com.example.voice
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -28,6 +30,11 @@ class SpeechRecognizerManager(
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private var originalSystemVolume = -1
+    private var originalNotificationVolume = -1
+    private var isStreamsMuted = false
+
     companion object {
         private const val TAG = "SpeechRecognizerManager"
     }
@@ -44,6 +51,67 @@ class SpeechRecognizerManager(
         }
     }
 
+    /**
+     * Suppresses standard Google / Android SpeechRecognizer "ding/ton" start & stop beeps
+     * by muting system and notification audio streams temporarily.
+     */
+    private fun suppressSystemSearchChime() {
+        try {
+            if (audioManager == null || isStreamsMuted) return
+
+            if (originalSystemVolume == -1) {
+                originalSystemVolume = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM)
+            }
+            if (originalNotificationVolume == -1) {
+                originalNotificationVolume = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, true)
+                @Suppress("DEPRECATION")
+                audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
+            }
+            isStreamsMuted = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed suppressing recognizer chime", e)
+        }
+    }
+
+    /**
+     * Safely restores system sound levels once microphone has started recording.
+     */
+    private fun restoreSystemSounds() {
+        try {
+            if (audioManager == null || !isStreamsMuted) return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, false)
+                @Suppress("DEPRECATION")
+                audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
+            }
+
+            if (originalSystemVolume >= 0) {
+                audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, originalSystemVolume, 0)
+                originalSystemVolume = -1
+            }
+            if (originalNotificationVolume >= 0) {
+                audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, originalNotificationVolume, 0)
+                originalNotificationVolume = -1
+            }
+            isStreamsMuted = false
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed restoring audio streams", e)
+        }
+    }
+
     private fun initRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             Log.e(TAG, "Speech recognition is not available on this device")
@@ -56,10 +124,15 @@ class SpeechRecognizerManager(
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                 setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
-                        Log.d(TAG, "onReadyForSpeech: microphone active")
+                        Log.d(TAG, "onReadyForSpeech: microphone active (chime suppressed)")
                         isListening = true
                         callback.onReadyForSpeech()
                         callback.onListeningStarted()
+
+                        // Unmute system chime safely after start beep window has elapsed
+                        mainHandler.postDelayed({
+                            restoreSystemSounds()
+                        }, 350)
                     }
 
                     override fun onBeginningOfSpeech() {
@@ -76,11 +149,13 @@ class SpeechRecognizerManager(
                     override fun onEndOfSpeech() {
                         Log.d(TAG, "onEndOfSpeech: speech finished, processing")
                         isListening = false
+                        restoreSystemSounds()
                         callback.onListeningStopped()
                     }
 
                     override fun onError(error: Int) {
                         isListening = false
+                        restoreSystemSounds()
                         val errorMsg = when (error) {
                             SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                             SpeechRecognizer.ERROR_CLIENT -> "Client error"
@@ -99,6 +174,7 @@ class SpeechRecognizerManager(
 
                     override fun onResults(results: Bundle?) {
                         isListening = false
+                        restoreSystemSounds()
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val text = matches?.firstOrNull()?.trim() ?: ""
                         Log.d(TAG, "onResults: $text")
@@ -149,10 +225,13 @@ class SpeechRecognizerManager(
             }
 
             try {
+                // Suppress Google "ding" sound before recognizer activation
+                suppressSystemSearchChime()
                 speechRecognizer?.startListening(intent)
                 isListening = true
                 callback.onListeningStarted()
             } catch (e: Exception) {
+                restoreSystemSounds()
                 Log.e(TAG, "Failed to start listening", e)
                 callback.onError(-1, e.message ?: "Failed to start listening")
             }
@@ -165,9 +244,11 @@ class SpeechRecognizerManager(
                 if (isListening) {
                     speechRecognizer?.stopListening()
                     isListening = false
+                    restoreSystemSounds()
                     callback.onListeningStopped()
                 }
             } catch (e: Exception) {
+                restoreSystemSounds()
                 Log.e(TAG, "Error stopping SpeechRecognizer", e)
             }
         }
@@ -178,8 +259,10 @@ class SpeechRecognizerManager(
             try {
                 speechRecognizer?.cancel()
                 isListening = false
+                restoreSystemSounds()
                 callback.onListeningStopped()
             } catch (e: Exception) {
+                restoreSystemSounds()
                 Log.e(TAG, "Error cancelling SpeechRecognizer", e)
             }
         }
@@ -187,6 +270,7 @@ class SpeechRecognizerManager(
 
     private fun destroyInternal() {
         try {
+            restoreSystemSounds()
             speechRecognizer?.destroy()
         } catch (e: Exception) {
             Log.e(TAG, "Error destroying SpeechRecognizer", e)
@@ -196,6 +280,8 @@ class SpeechRecognizerManager(
     }
 
     fun destroy() {
-        runOnMainThread { destroyInternal() }
+        runOnMainThread {
+            destroyInternal()
+        }
     }
 }

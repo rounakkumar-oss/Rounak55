@@ -93,6 +93,7 @@ import com.example.ui.theme.TextSecondaryDark
 fun JarvisScreen(
     viewModel: JarvisViewModel,
     onRequestAudioPermission: () -> Unit = {},
+    onRequestBatteryExemption: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -140,7 +141,8 @@ fun JarvisScreen(
                 onSendTypedCommand = { command -> viewModel.processCommand(context, command) },
                 onReplaySpeech = { viewModel.replayLastResponse() },
                 onClearHistory = { viewModel.clearHistory() },
-                onRefreshOverlay = { viewModel.checkOverlayPermission(context) }
+                onRefreshOverlay = { viewModel.checkOverlayPermission(context) },
+                onRequestBatteryExemption = onRequestBatteryExemption
             )
         }
     }
@@ -157,7 +159,8 @@ private fun JarvisStandardView(
     onSendTypedCommand: (String) -> Unit,
     onReplaySpeech: () -> Unit,
     onClearHistory: () -> Unit,
-    onRefreshOverlay: () -> Unit
+    onRefreshOverlay: () -> Unit,
+    onRequestBatteryExemption: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     var isKeyboardInputOpen by remember { mutableStateOf(false) }
@@ -618,7 +621,8 @@ private fun JarvisStandardView(
             // Permissions Card
             PermissionsCard(
                 hasOverlayPermission = uiState.hasOverlayPermission,
-                onOverlayRefreshed = onRefreshOverlay
+                onOverlayRefreshed = onRefreshOverlay,
+                onRequestBatteryExemption = onRequestBatteryExemption
             )
 
             Spacer(modifier = Modifier.height(14.dp))

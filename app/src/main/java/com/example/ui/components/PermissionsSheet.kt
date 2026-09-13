@@ -66,9 +66,22 @@ import com.example.ui.theme.TextSecondaryDark
 fun PermissionsCard(
     hasOverlayPermission: Boolean,
     onOverlayRefreshed: () -> Unit,
+    onRequestBatteryExemption: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val powerManager = remember {
+        context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+    }
+    var isBatteryExempted by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && powerManager != null) {
+                powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            } else {
+                true
+            }
+        )
+    }
     var audioGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -200,6 +213,22 @@ fun PermissionsCard(
                         context.startActivity(intent)
                     }
                     onOverlayRefreshed()
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Battery Optimization Whitelist for Screen-Off Wake Word
+            PermissionItem(
+                title = "Battery Whitelist (Screen-Off Wake Word)",
+                description = "Keeps \"Jarvis\" listening alive when screen is off or app is minimized.",
+                icon = Icons.Default.Mic,
+                isGranted = isBatteryExempted,
+                onRequest = {
+                    onRequestBatteryExemption()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && powerManager != null) {
+                        isBatteryExempted = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                    }
                 }
             )
 

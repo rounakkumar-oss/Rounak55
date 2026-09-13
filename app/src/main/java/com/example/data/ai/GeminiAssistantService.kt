@@ -24,7 +24,8 @@ class GeminiAssistantService {
 
     companion object {
         private const val TAG = "GeminiAssistant"
-        private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+        // Per gemini-api skill: Use gemini-2.5-flash for fast, concise voice text responses
+        private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     }
 
     suspend fun getResponse(userPrompt: String): String = withContext(Dispatchers.IO) {
@@ -34,19 +35,19 @@ class GeminiAssistantService {
             ""
         }
 
-        // If key is empty or default placeholder, use smart local conversational response
+        // If key is empty or default placeholder, use smart local conversational engine
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            Log.d(TAG, "No valid Gemini API key found, utilizing smart local engine")
+            Log.d(TAG, "No valid Gemini API key found, utilizing local conversational engine")
             return@withContext LocalConversationalEngine.generateReply(userPrompt)
         }
 
         try {
-            val systemInstruction = "You are JARVIS, a sophisticated, loyal, and concise AI voice assistant created to assist the user. " +
-                    "Keep your responses short, natural, and conversational (1 to 2 sentences max) so they sound great when read aloud via Text-to-Speech. " +
-                    "You fluently understand and speak both English and Hindi/Hinglish. " +
+            val systemInstruction = "You are JARVIS, a sophisticated, loyal, and concise personal AI voice assistant (Alexa/Jarvis persona). " +
+                    "Keep all responses strictly 1 to 2 sentences max so they are fast and crisp when read aloud via Text-to-Speech on smartwatches and phones. " +
+                    "You fluently understand and speak English, Hindi, and Hinglish. " +
                     "If the user asks in Hindi or Hinglish, answer in clear, polite Hindi or Hinglish. " +
                     "If the user asks in English, answer in English. " +
-                    "Never output markdown symbols, asterisks, or bullet points as they degrade voice speech."
+                    "Never output markdown asterisks, hashes, or bullet points, as raw punctuation sounds bad in voice audio."
 
             val jsonBody = JSONObject().apply {
                 put("contents", JSONArray().apply {
@@ -68,7 +69,7 @@ class GeminiAssistantService {
                 })
                 put("generationConfig", JSONObject().apply {
                     put("temperature", 0.7)
-                    put("maxOutputTokens", 120)
+                    put("maxOutputTokens", 100)
                 })
             }
 
@@ -92,7 +93,11 @@ class GeminiAssistantService {
                         val text = parts.getJSONObject(0).optString("text", "").trim()
                         if (text.isNotBlank()) {
                             // Strip any accidental markdown formatting
-                            return@withContext text.replace("*", "").replace("#", "").trim()
+                            return@withContext text
+                                .replace("*", "")
+                                .replace("#", "")
+                                .replace("`", "")
+                                .trim()
                         }
                     }
                 }
@@ -116,30 +121,30 @@ object LocalConversationalEngine {
         return when {
             // Greetings
             lower.contains("hello") || lower.contains("hi jarvis") || lower.contains("hey jarvis") -> {
-                "Hello sir! All systems are online. How may I assist you today?"
+                "Hello! All systems are online and standing by. How may I assist you?"
             }
             lower.contains("namaste") || lower.contains("namaskar") -> {
-                "Namaste sir! Main aapki seva mein hazir hoon. Batayein kya sahayata chahiye?"
+                "Namaste sir! Main aapki seva mein hazir hoon, batayein kya madad karoon?"
             }
             lower.contains("kaise ho") || lower.contains("kaisa chal raha") -> {
-                "Main theek hoon sir, fully operational aur aapki madad ke liye taiyar hoon!"
+                "Main badhiya hoon sir! All systems operational, batayein kya aadesh hai?"
             }
             lower.contains("how are you") || lower.contains("how are you doing") -> {
-                "I am functioning at peak efficiency, sir. Ready for your command."
+                "I am functioning at peak efficiency, sir. How can I help you today?"
             }
 
             // Identity
             lower.contains("who are you") || lower.contains("what is your name") -> {
-                "I am JARVIS, your intelligent personal voice assistant."
+                "I am JARVIS, your personal AI voice assistant with smart device control."
             }
             lower.contains("tum kaun ho") || lower.contains("naam kya hai") -> {
-                "Mera naam JARVIS hai, aapka personal voice assistant. Main aapke phone controls aur sawaalon mein madad karta hoon."
+                "Mera naam JARVIS hai, aapka personal voice assistant. Main aapki har command ke liye taiyar hoon."
             }
 
             // Time & Date
             lower.contains("time") || lower.contains("samay") || lower.contains("kitne baje") -> {
                 val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
-                if (isHindi) "Abhi samay hai $time." else "The current time is $time, sir."
+                if (isHindi) "Abhi samay hai $time." else "The time is $time, sir."
             }
             lower.contains("date") || lower.contains("tarikh") || lower.contains("taarikh") || lower.contains("today") -> {
                 val date = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date())
@@ -149,16 +154,16 @@ object LocalConversationalEngine {
             // Capabilities
             lower.contains("what can you do") || lower.contains("help") || lower.contains("madad") || lower.contains("kya kar sakte ho") -> {
                 if (isHindi) {
-                    "Aap mujhse YouTube kholne, gana chalane, WhatsApp ya Camera kholne, ya kisi ko call lagane ke liye bol sakte hain."
+                    "Aap mujhse koi bhi app kholne, YouTube pe gana chalane, call lagane ya koi bhi sawaal poochne ke liye bol sakte hain."
                 } else {
-                    "I can open YouTube, search and play songs, open WhatsApp or Camera, make phone calls, or answer your questions."
+                    "I can launch any installed app, play music on YouTube, make phone calls, and answer your questions."
                 }
             }
 
             // Jokes
             lower.contains("joke") || lower.contains("chutkula") || lower.contains("hasao") -> {
                 if (isHindi) {
-                    "Ek baar computer doctor ke paas gaya aur bola: Doctor sahab, mujhe lagta hai mujhe virus ho gaya hai!"
+                    "Ek baar computer doctor ke paas gaya aur bola: Doctor sahab, lagta hai mujhe virus lag gaya hai!"
                 } else {
                     "Why do programmers prefer dark mode? Because light attracts bugs, sir!"
                 }
@@ -166,7 +171,7 @@ object LocalConversationalEngine {
 
             // Appreciation
             lower.contains("thank you") || lower.contains("thanks") || lower.contains("shukriya") || lower.contains("dhanyawad") -> {
-                if (isHindi) "Shukriya ki koi baat nahi sir, yeh toh mera farz tha." else "Always at your service, sir."
+                if (isHindi) "Shukriya ki koi baat nahi sir, yeh toh mera farz tha." else "Always a pleasure to assist you, sir."
             }
 
             // Good morning / night
@@ -177,19 +182,18 @@ object LocalConversationalEngine {
                 if (isHindi) "Shubh ratri sir. Aaram kijiye." else "Good night, sir. Standing by whenever you need me."
             }
 
-            // Fallback general responses
+            // Fallback concise responses
             else -> {
                 if (isHindi) {
-                    "Maine aapka aadesh suna: \"$prompt\". Main ispar dhyan de raha hoon."
+                    "Maine aapka aadesh suna: \"$prompt\". Iska vishleshan ho raha hai."
                 } else {
-                    "Understood, sir. Processing: \"$prompt\". How else may I assist you?"
+                    "Understood, sir. Processing: \"$prompt\". Let me know if you need anything else."
                 }
             }
         }
     }
 
     private fun isHindiQuery(text: String): Boolean {
-        // Check for Devanagari Unicode block
         for (char in text) {
             if (Character.UnicodeBlock.of(char) == Character.UnicodeBlock.DEVANAGARI) {
                 return true

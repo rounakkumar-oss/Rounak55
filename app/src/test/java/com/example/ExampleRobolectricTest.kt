@@ -2,6 +2,7 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.ai.LocalConversationalEngine
 import com.example.util.ActionExecutor
 import com.example.util.AppType
 import com.example.util.ParsedAction
@@ -74,6 +75,21 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `dynamic app launcher parses any installed app`() {
+    val spotifyAction = ActionExecutor.parseCommand("Open Spotify")
+    assertTrue(spotifyAction is ParsedAction.OpenDynamicApp)
+    assertEquals("Spotify", (spotifyAction as ParsedAction.OpenDynamicApp).appQuery)
+
+    val spotifyHindiAction = ActionExecutor.parseCommand("Spotify kholo")
+    assertTrue(spotifyHindiAction is ParsedAction.OpenDynamicApp)
+    assertEquals("Spotify", (spotifyHindiAction as ParsedAction.OpenDynamicApp).appQuery)
+
+    val instaAction = ActionExecutor.parseCommand("Instagram open karo")
+    assertTrue(instaAction is ParsedAction.OpenDynamicApp)
+    assertEquals("Instagram", (instaAction as ParsedAction.OpenDynamicApp).appQuery)
+  }
+
+  @Test
   fun `casual talk or general questions do not launch apps`() {
     val chat1 = ActionExecutor.parseCommand("What is the weather today?")
     assertTrue(chat1 is ParsedAction.Chat)
@@ -86,5 +102,8 @@ class ExampleRobolectricTest {
 
     val chat4 = ActionExecutor.parseCommand("Namaste Jarvis kaise ho")
     assertTrue(chat4 is ParsedAction.Chat)
+
+    val reply = LocalConversationalEngine.generateReply("Hello Jarvis")
+    assertTrue(reply.isNotBlank())
   }
 }
